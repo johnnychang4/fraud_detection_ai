@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Audio } from 'expo-av';
 import OpenAI from "openai";
 import axios from 'axios';
+import fraudDatabase from '../../assets/fraudDatabase';
 
 const openai = new OpenAI({ apiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY, dangerouslyAllowBrowser: true });
 
@@ -85,7 +86,7 @@ Permission:
 Do you understand that this conversation is being recorded?
 Is it being recorded with your permission?
 
-Part 1: Identification and Preliminary Details (FNOL)
+- Part 1: Identification and Preliminary Details (FNOL)
 Caller Information:
 Can you please state your full name and spell your last name?
 Are you the policyholder or someone else reporting this incident (a claimant, policyholder, passenger, or witness)?
@@ -104,7 +105,7 @@ Were there any vehicles damaged?
 Was law enforcement contacted?
 If yes: Was a police report filed?
 
-Part 2: Detailed Recorded Statement
+- Part 2: Detailed Recorded Statement 
 General Incident Details:
 Can you describe in detail what happened before, during, and after the incident?
 What were the weather and road conditions at the time?
@@ -158,7 +159,7 @@ Have you ever been involved in any prior vehicle accidents?
 If yes: Can you provide details, including dates and outcomes?
 Have you ever filed a claim for a stolen or damaged vehicle?
 
-Part 3: Closing:
+- Part 3: Closing:
 Is there anything else you would like to add about the incident?
 Have you understood all the questions asked?
 Is all the information you provided accurate and complete to the best of your knowledge?
@@ -177,30 +178,24 @@ Thank you. This concludes our interview.
   if (!advisorAssistantId) {
     const advisor = await openai.beta.assistants.create({
       name: "Claims Advisor",
-      instructions: `You are an expert insurance fraud detection advisor. Your role is to analyze conversations between insurance adjusters and claimants in real-time. Your primary responsibilities are:
+      instructions: `You are an expert in insurance fraud detection. Your role is to analyze conversations between an insurance adjuster and a claimant in real-time.
 
-1. Analyze the conversation flow and content for potential fraud indicators
-2. Identify missing or inconsistent information
-3. Suggest specific follow-up questions that the adjuster should ask
-4. Flag any suspicious patterns or red flags
-5. Provide strategic advice on areas that need deeper investigation
+      Your task is to detect potential inconsistencies, missing details, or fraud indicators based on the information provided.
+      Compare cases with similar cases in the fraud database to identify patterns.
+      If you notice any issues, suggest specific, concise follow-up questions for clarification or investigation.
+      Only suggest follow-up questions if there is a clear need based on inconsistencies or suspicious information.
 
-Focus on:
-- Timeline inconsistencies
-- Behavioral indicators
-- Missing or vague details
-- Patterns that match known fraud schemes
-- Discrepancies in the narrative
+      This is the exact output format that you should be responding with, with no other text or comments. I need it to be in this format to parse your response correctly:
+      {
+        "case_summary": "<Your case summary in a string or empty string>",
+        "chain_of_thought": "<Your chain of thought in a string or empty string>",
+        "question": "<Your follow-up question in a string or empty string>",
+        "new_question": 0 or 1
+      }
 
-Format your responses as:
-1. Key Observations: List main points from the conversation
-2. Potential Red Flags: Any concerning elements
-3. Recommended Follow-up Questions: Specific questions to ask
-4. Investigation Areas: Aspects that need deeper examination
-
-Be concise and specific in your recommendations.`,
+      Here is the fraud case database to reference with example follow-up questions:
+      ${fraudDatabase}`,
       model: "gpt-4o-mini",
-      tools: [{ type: "file_search" }],
     });
     advisorAssistantId = advisor.id;
   }
@@ -231,12 +226,12 @@ async function addMessageToThread(threadId: string, content: string) {
   }
 }
 
-async function runAssistant(threadId: string): Promise<string> {
+async function runAssistant(threadId: string, assistantIdToUse: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let fullResponse = ''; // Accumulate the full response here
 
     openai.beta.threads.runs.stream(threadId, {
-      assistant_id: assistantId
+      assistant_id: assistantIdToUse
     })
     .on('textCreated', (text) => console.log('\nassistant > '))
     .on('textDelta', (textDelta, snapshot) => {
@@ -259,30 +254,6 @@ async function getThreadMessages(threadId: string) {
     return messages;
   } catch (error) {
     console.error('❌ Error retrieving thread messages:', error);
-    throw error;
-  }
-}
-
-async function loadFraudDatabase() {
-  try {
-    // Fetch the text file from your public directory
-    const response = await fetch('/fraud_database.txt');
-    const text = await response.text();
-    
-    // Convert the text file to a Blob for OpenAI
-    const blob = new Blob([text], { type: 'text/plain' });
-    const file = new File([blob], 'fraud_database.txt', { type: 'text/plain' });
-
-    // Create a file in OpenAI
-    const uploadedFile = await openai.files.create({
-      file: file,
-      purpose: "Fraud Case Summaries",
-    });
-
-    console.log('✅ Fraud database loaded:', uploadedFile.id);
-    return uploadedFile.id;
-  } catch (error) {
-    console.error('❌ Error loading fraud database:', error);
     throw error;
   }
 }
@@ -318,49 +289,23 @@ async function analyzeConversation(messages: any) {
       })
       .filter((msg: { role: string; content: string }) => msg.content !== '[Content extraction failed]');
 
+    console.log('💬 Conversation History:', JSON.stringify(conversationHistory, null, 2));
     if (conversationHistory.length === 0) {
       console.log('⚠️ No valid messages to analyze');
       return null;
     }
 
-    // Update thread creation to include file attachments
+    // Create or get thread
     if (!advisorThread.threadId) {
       advisorThread.threadId = await createThread();
     }
 
-    await openai.beta.threads.messages.create(advisorThread.threadId, {
-      role: "user",
-      content: `Please analyze this conversation between an insurance adjuster and a claimant:\n\n${JSON.stringify(conversationHistory, null, 2)} 
-      You are an expert in insurance fraud detection. Analyze the following conversation between an insurance adjuster and a claimant. 
-      Your task is to detect potential inconsistencies, missing details, or fraud indicators based on the information provided. 
-      Summarize the case based on the conversation so far and compare this case with similar cases in the fraud database to identify patterns.
-      If you notice any, suggest specific, concise follow-up questions that the adjuster can ask to clarify or investigate further. 
-      Only suggest follow-up questions if there is a clear need for clarification or further investigation based on inconsistencies or suspicious information. Too many questions will overwhelm the adjuster.
-      If there are no suspicious elements or inconsistencies or if you want to wait for more information from the conversation, respond with "new_question": 0 and do not provide any questions.
-      Tell me your chain of thought that lead you to whether or not to ask a new question and what question you would ask.
-        Output Format (always in JSON):
-        json
-        Copy code
-        {
-          "case_summary": "<Your case summary or empty string>",
-          "chain_of_thought": "<Your chain of thought or empty string>",
-          "question": "<Your follow-up question or empty string>",
-          "new_question": 0 or 1
-        }`,
-      attachments: [{ file_id: aapl10k.id, tools: [{ type: "file_search" }] }],
-    });
+    // Send the conversation for analysis
+    await addMessageToThread(advisorThread.threadId, `Here is the current conversation history between the adjuster and the claimant:\n\n${JSON.stringify(conversationHistory, null, 2)}`);
 
-    // Run the advisor assistant
-    const gptText = await runAssistant(advisorThread.threadId);
-    console.log('🤖 Assistant Response:', gptText);
-
-    // Add logic to search the PDF for similar cases
-    const searchResults = await openai.beta.threads.runs.stream(advisorThread.threadId, {
-      assistant_id: advisorAssistantId,
-      include: ["step_details.tool_calls[*].file_search.results[*].content"]
-    });
-
-    console.log('🔍 Search Results:', searchResults);
+    // Get the analysis
+    const gptText = await runAssistant(advisorThread.threadId, advisorAssistantId);
+    console.log('🔍 Advisor Analysis:', gptText);
 
     return gptText;
   } catch (error) {
@@ -438,32 +383,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    const initializeVectorStore = async () => {
-      try {
-
-        // Create a vector store
-        let vectorStore = await openai.beta.vectorStores.create({
-          name: "Fraud Case Summaries",
-        });
-
-        // Upload the PDF to the vector store
-        await openai.beta.vectorStores.fileBatches.uploadAndPoll(vectorStore.id, [fileStream]);
-
-        // Update the advisor assistant with the vector store
-        await openai.beta.assistants.update(advisorAssistantId, {
-          tool_resources: { file_search: { vector_store_ids: [vectorStore.id] } },
-        });
-
-        console.log('✅ Vector store initialized and assistant updated');
-      } catch (error) {
-        console.error('❌ Error initializing vector store:', error);
-      }
-    };
-
     if (Platform.OS === 'web') {
       initializeAssistants();
       initializeWebSpeechRecognition();
-      initializeVectorStore(); // Call the vector store initialization
 
       // Start the conversation analyzer
       analyzerIntervalRef.current = setInterval(async () => {
@@ -502,7 +424,7 @@ export default function App() {
       // Get and log thread messages before running the assistant
       await getThreadMessages(currentThreadId);
       
-      const gptText = await runAssistant(currentThreadId);
+      const gptText = await runAssistant(currentThreadId, assistantId);
       console.log('🤖 Assistant Response:', gptText);
       
       // Get and log thread messages after running the assistant

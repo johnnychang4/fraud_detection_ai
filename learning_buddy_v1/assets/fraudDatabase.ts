@@ -1,3 +1,5 @@
+// Create this new file
+const fraudDatabase = `
 Category: Incident Details
 Case 1: Low-Speed Accident with Extensive Damage
 Summary: The claimant reported a minor collision in a parking lot. Despite the low speed, they claimed extensive bumper and frame damage. Photos provided show significant structural damage inconsistent with the described event.
@@ -184,4 +186,6 @@ Key Questions:
 Why did your reported incident location change between statements?
 Were there any witnesses or cameras in either location that can verify your account?
 Can you explain any circumstances that might have led to confusion about the incident’s location?
+`;
 
+export default fraudDatabase; 
