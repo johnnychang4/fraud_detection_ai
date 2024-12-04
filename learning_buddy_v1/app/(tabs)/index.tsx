@@ -35,6 +35,10 @@ interface ThreadState {
   currentRunId: string | null;
 }
 
+interface AdjusterAssistant {
+  suggestedQuestion: string;
+}
+
 let assistantId: string | null = null; // Store the adjuster assistant ID
 let advisorAssistantId: string | null = null; // Store the advisor assistant ID
 
@@ -48,6 +52,10 @@ const advisorThread: ThreadState = {
   threadId: null,
   isProcessing: false,
   currentRunId: null
+};
+
+const adjusterAssistant: AdjusterAssistant = {
+  suggestedQuestion: ''
 };
 
 async function initializeAssistants() {
@@ -73,6 +81,8 @@ Examples of my communication style:
 1. Concise yet thorough: "I'd like to understand the full picture before proceeding. Can you elaborate on the timeline of the incident?"
 2. Empathetic and professional: "Thank you for providing that information. It's important for us to capture all the details to assist with your claim effectively."
 3.Systematic: "Let's start with the basics and work step by step through the details."
+
+Note that there will be a claims advisor that will be monitoring the conversation for potential inconsistencies, missing details, or fraud indicators. The advisor will suggest follow-up questions if needed, and you should prioritize those questions over the ones in the guide first.
 
 Today's date: ${new Date().toLocaleDateString()}. This is very important information since potential fraud indicators are time-sensitive.
 
@@ -178,24 +188,38 @@ Thank you. This concludes our interview.
   if (!advisorAssistantId) {
     const advisor = await openai.beta.assistants.create({
       name: "Claims Advisor",
-      instructions: `You are an expert in insurance fraud detection. Your role is to analyze conversations between an insurance adjuster and a claimant in real-time.
+      instructions: `You are an expert claims advisor in insurance fraud detection. Your role is to analyze conversations between an insurance adjuster and a claimant in real-time.
 
       Your task is to detect potential inconsistencies, missing details, or fraud indicators based on the information provided.
       Compare cases with similar cases in the fraud database to identify patterns.
-      If you notice any issues, suggest specific, concise follow-up questions for clarification or investigation.
-      Only suggest follow-up questions if there is a clear need based on inconsistencies or suspicious information.
+      If you notice any potential issues or inconsistencies or missing details or fraud indicators, suggest specific, concise follow-up questions for clarification or investigation.
+      However, do not suggest follow-up questions if the conversation is proceeding normally and nothing seems suspicious.
 
-      This is the exact output format that you should be responding with, with no other text or comments. I need it to be in this format to parse your response correctly:
-      {
-        "case_summary": "<Your case summary in a string or empty string>",
-        "chain_of_thought": "<Your chain of thought in a string or empty string>",
-        "question": "<Your follow-up question in a string or empty string>",
-        "new_question": 0 or 1
-      }
+      IMPORTANT: When you identify any issues or need clarification, you MUST use the suggestFollowUpQuestion function to suggest a specific follow-up question. Do not include questions in your regular response.
 
       Here is the fraud case database to reference with example follow-up questions:
       ${fraudDatabase}`,
       model: "gpt-4o-mini",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "suggestFollowUpQuestion",
+            description: "Suggest a follow-up question for the adjuster if you detect potential inconsistencies, missing details, or fraud indicators based on the information provided by the client. If there isn't anything that is suspicious, wait for the conversation to continue to collect more information.",
+            parameters: {
+              type: "object",
+              properties: {
+                question: {
+                  type: "string",
+                  description: "The follow-up question to ask the claimant.",
+                },
+              },
+              required: ["question"],
+              additionalProperties: false,
+            },
+          },
+        },
+      ],
     });
     advisorAssistantId = advisor.id;
   }
@@ -260,7 +284,13 @@ async function getThreadMessages(threadId: string) {
 
 async function analyzeConversation(messages: any) {
   try {
+    if (advisorThread.isProcessing) {
+      console.log('⏳ Analysis already in progress, skipping...');
+      return null;
+    }
+
     advisorThread.isProcessing = true;
+    // console.log('🔄 Starting conversation analysis...');
 
     if (!advisorAssistantId) {
       throw new Error('Advisor Assistant ID is not initialized.');
@@ -289,7 +319,6 @@ async function analyzeConversation(messages: any) {
       })
       .filter((msg: { role: string; content: string }) => msg.content !== '[Content extraction failed]');
 
-    console.log('💬 Conversation History:', JSON.stringify(conversationHistory, null, 2));
     if (conversationHistory.length === 0) {
       console.log('⚠️ No valid messages to analyze');
       return null;
@@ -298,16 +327,42 @@ async function analyzeConversation(messages: any) {
     // Create or get thread
     if (!advisorThread.threadId) {
       advisorThread.threadId = await createThread();
+      // console.log('🧵 Created new advisor thread:', advisorThread.threadId);
+    }
+
+    // Check for any active runs and cancel them if they exist
+    try {
+      if (advisorThread.currentRunId) {
+        console.log('🛑 Cancelling previous run:', advisorThread.currentRunId);
+        await openai.beta.threads.runs.cancel(
+          advisorThread.threadId,
+          advisorThread.currentRunId
+        );
+      }
+    } catch (error) {
+      console.warn('⚠️ Error cancelling previous run:', error);
     }
 
     // Send the conversation for analysis
     await addMessageToThread(advisorThread.threadId, `Here is the current conversation history between the adjuster and the claimant:\n\n${JSON.stringify(conversationHistory, null, 2)}`);
+    // console.log('📨 Sent conversation history to advisor');
 
-    // Get the analysis
-    const gptText = await runAssistant(advisorThread.threadId, advisorAssistantId);
-    console.log('🔍 Advisor Analysis:', gptText);
+    // Run the assistant and handle function calls
+    // console.log('🤖 Running advisor assistant...');
+    const advisorResponse = await runAssistantWithFunctionCalling(
+      advisorThread.threadId,
+      advisorAssistantId
+    );
+    // console.log('✅ Advisor response received:', advisorResponse);
 
-    return gptText;
+    // Process the advisor's response
+    if (advisorResponse && advisorResponse.question) {
+      console.log('💡 Advisor suggests follow-up question:', advisorResponse.question);
+      adjusterAssistant.suggestedQuestion = advisorResponse.question;
+    } else {
+      console.log('💡 Advisor does not suggest follow-up question');
+    }
+    
   } catch (error) {
     console.error('❌ Error analyzing conversation:', error);
     return null;
@@ -315,6 +370,97 @@ async function analyzeConversation(messages: any) {
     advisorThread.isProcessing = false;
     advisorThread.currentRunId = null;
   }
+}
+
+async function runAssistantWithFunctionCalling(
+  threadId: string,
+  assistantIdToUse: string
+): Promise<{ question?: string }> {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const run = await openai.beta.threads.runs.create(threadId, {
+        assistant_id: assistantIdToUse,
+      });
+      advisorThread.currentRunId = run.id;
+
+      // Poll for run completion
+      let completedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+
+      while (
+        ['queued', 'in_progress', 'requires_action'].includes(completedRun.status)
+      ) {
+        if (completedRun.status === 'requires_action') {
+          if (
+            completedRun.required_action?.type === 'submit_tool_outputs' &&
+            completedRun.required_action.submit_tool_outputs.tool_calls
+          ) {
+            const toolCalls = completedRun.required_action.submit_tool_outputs.tool_calls;
+            
+            for (const toolCall of toolCalls) {
+              if (toolCall.function.name === 'suggestFollowUpQuestion') {
+                const args = JSON.parse(toolCall.function.arguments);
+                
+                // Submit the tool outputs with the function's response
+                await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
+                  tool_outputs: [{
+                    tool_call_id: toolCall.id,
+                    output: JSON.stringify({ success: true })  // Provide a valid output
+                  }]
+                });
+
+                // Return the suggested question
+                resolve({ question: args.question });
+                return;
+              }
+            }
+          }
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        completedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
+      }
+
+      if (completedRun.status === 'completed') {
+        resolve({});
+      } else if (completedRun.status === 'failed') {
+        reject(new Error(`Run failed: ${completedRun.last_error?.message}`));
+      } else {
+        console.log('⚠️ Unexpected run status:', completedRun.status);
+        resolve({});
+      }
+    } catch (error) {
+      console.error('❌ Error during assistant run:', error);
+      reject(error);
+    }
+  });
+}
+
+// Add these type definitions at the top of your file
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+  }
+}
+
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (event: Event) => void;
+  onend: (event: Event) => void;
+  onerror: (event: SpeechRecognitionErrorEvent) => void;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
 }
 
 export default function App() {
@@ -373,7 +519,7 @@ export default function App() {
       }
     };
 
-    recognition.onerror = (event: SpeechRecognitionError) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('❌ Speech recognition error:', event.error);
       setIsRecording(false);
     };
@@ -393,7 +539,7 @@ export default function App() {
           const messages = await getThreadMessages(threadIdRef.current);
           await analyzeConversation(messages);
         }
-      }, 30000); // Run every 30 seconds
+      }, 15000); // Run every 15 seconds instead of 10
     }
 
     return () => {
@@ -419,7 +565,17 @@ export default function App() {
         console.log('🔗 Thread ID set to:', currentThreadId);
       }
 
-      await addMessageToThread(currentThreadId, text);
+      // Check for advisor's suggested question
+      let advisorQuestion = '';
+      if (adjusterAssistant.suggestedQuestion) {
+        advisorQuestion = `\n\nAdvisor suggests: ${adjusterAssistant.suggestedQuestion}`;
+        adjusterAssistant.suggestedQuestion = ''; // Reset after using
+      }
+
+      // Include the advisor's suggestion in the message
+      const assistantInput = text + advisorQuestion;
+
+      await addMessageToThread(currentThreadId, assistantInput);
       
       // Get and log thread messages before running the assistant
       await getThreadMessages(currentThreadId);
