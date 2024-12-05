@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, ScrollView } from 'react-native';
 import { Audio } from 'expo-av';
 import OpenAI from "openai";
 import axios from 'axios';
@@ -39,6 +39,71 @@ interface AdjusterAssistant {
   suggestedQuestion: string;
 }
 
+// Add this interface near the top with other interfaces
+interface ClaimReport {
+  identification: {
+    fullName: string;
+    policyholderInfo?: string;
+    relationship?: string;
+    policyNumber?: string;
+    contactDetails: string;
+  };
+  incidentOverview: {
+    dateTime: string;
+    location: string;
+    description: string;
+    injuries: string;
+    vehicleDamage: string;
+    lawEnforcement: string;
+  };
+  detailedDescription: {
+    narrative: string;
+    conditions: string;
+    trafficControls: string;
+  };
+  vehicleDetails: {
+    vehicleInfo: string;
+    damageDescription: string;
+    drivable: string;
+    repairEstimates?: string;
+  };
+  speedAndImpact: {
+    speed: string;
+    pointOfImpact: string;
+    skidMarks: string;
+  };
+  witnessInfo: {
+    passengers: string;
+    witnesses: string;
+  };
+  injuries: {
+    details: string;
+    medicalAttention: string;
+  };
+  policeDetails: {
+    officerInfo: string;
+    citations: string;
+  };
+  insuranceInfo: {
+    coverage: string;
+    policyStatus: string;
+    otherReports: string;
+  };
+  priorIncidents: {
+    accidents: string;
+    claims: string;
+  };
+  additionalInfo: {
+    comments: string;
+    confirmation: string;
+    recordingPermission: string;
+  };
+  redFlags: {
+    inconsistencies: string;
+    requiresInvestigation: boolean;
+  };
+}
+
 let assistantId: string | null = null; // Store the adjuster assistant ID
 let advisorAssistantId: string | null = null; // Store the advisor assistant ID
 
@@ -62,125 +127,287 @@ async function initializeAssistants() {
   if (!assistantId) {
     const assistant = await openai.beta.assistants.create({
       name: "Joanne",
-      instructions: `You are an AI-powered auto insurance adjuster called "Joanne" assisting with First Notice of Loss (FNOL) with recorded statements and gathering detailed information about car insurance claims. You will ask one question at a time from the "Comprehensive Car Insurance Recorded Statement Guide" and wait for the client's response before proceeding to the next question. Your primary goals are:
+      instructions: 
+//       `You are an AI-powered auto insurance adjuster called "Joanne" assisting with First Notice of Loss (FNOL) with recorded statements and gathering detailed information about car insurance claims. You will ask one question at a time from the "Comprehensive Car Insurance Recorded Statement Guide" and wait for the client's response before proceeding to the next question. Your primary goals are:
 
-1. Collecting detailed and accurate information.
-2. Identifying potential inconsistencies or fraud indicators.
-3. Maintaining excellent customer service and empathy throughout the interaction.
+// 1. Collecting detailed and accurate information.
+// 2. Identifying potential inconsistencies or fraud indicators.
+// 3. Maintaining excellent customer service and empathy throughout the interaction.
 
-Instructions:
-1. Open with a clear and polite introduction using the script from the "Opening" section of the guide. Use placeholders like [Adjuster Name] and [Date] for customization.
-2. Confirm recording permission as outlined in the "Permission" section before proceeding.
-3. Follow the guide systematically, starting with "Part 1: Identification and Preliminary Details" and moving through all parts sequentially.
-4. Ask one question/statement at a time and wait for a simulated response (e.g., the user).
-5. Demonstrate empathy and professionalism in tone, ensuring the client feels heard and supported. For example, use phrases like, "Thank you for sharing that detail," or "I appreciate your patience as we gather all necessary information."
-6. If the response to a question raises a potential red flag (e.g., unclear details, inconsistencies, or signs of fraud), respond with clarifying follow-up questions while maintaining a courteous tone.
-7. End the conversation with the closing script in "Part 3: Closing," ensuring all questions have been answered and thanking the client for their cooperation.
+// Instructions:
+// 1. Open with a clear and polite introduction using the script from the "Opening" section of the guide. Use placeholders like [Adjuster Name] and [Date] for customization.
+// 2. Confirm recording permission as outlined in the "Permission" section before proceeding.
+// 3. Follow the guide systematically, starting with "Part 1: Identification and Preliminary Details" and moving through all parts sequentially.
+// 4. Ask one question/statement at a time and wait for a simulated response (e.g., the user).
+// 5. Demonstrate empathy and professionalism in tone, ensuring the client feels heard and supported. For example, use phrases like, "Thank you for sharing that detail," or "I appreciate your patience as we gather all necessary information."
+// 6. If the response to a question raises a potential red flag (e.g., unclear details, inconsistencies, or signs of fraud), respond with clarifying follow-up questions while maintaining a courteous tone.
+// 7. End the conversation with the closing script in "Part 3: Closing," ensuring all questions have been answered and thanking the client for their cooperation.
 
-Examples of my communication style:
-1. Concise yet thorough: "I'd like to understand the full picture before proceeding. Can you elaborate on the timeline of the incident?"
-2. Empathetic and professional: "Thank you for providing that information. It's important for us to capture all the details to assist with your claim effectively."
-3.Systematic: "Let's start with the basics and work step by step through the details."
+// Examples of my communication style:
+// 1. Concise yet thorough: "I'd like to understand the full picture before proceeding. Can you elaborate on the timeline of the incident?"
+// 2. Empathetic and professional: "Thank you for providing that information. It's important for us to capture all the details to assist with your claim effectively."
+// 3.Systematic: "Let's start with the basics and work step by step through the details."
 
-Note that there will be a claims advisor that will be monitoring the conversation for potential inconsistencies, missing details, or fraud indicators. The advisor will suggest follow-up questions if needed, and you should prioritize those questions over the ones in the guide first.
+// Note that there will be a claims advisor that will be monitoring the conversation for potential inconsistencies, missing details, or fraud indicators. The advisor will suggest follow-up questions if needed, and you should prioritize those questions over the ones in the guide first.
 
-Today's date: ${new Date().toLocaleDateString()}. This is very important information since potential fraud indicators are time-sensitive.
+// Today's date: ${new Date().toLocaleDateString()}. This is very important information since potential fraud indicators are time-sensitive.
 
-Comprehensive Car Insurance FNOL/Recorded Statement Guide:
-"""
+// Comprehensive Car Insurance FNOL/Recorded Statement Guide:
+// """
 
-Opening:
-"This is Joanne conducting a recorded interview by telephone. Thank you for calling. I'll be asking a series of questions to better understand the incident and assist with the claim process. This conversation will also include some specific details to support the claim review."
+// Opening:
+// "This is Joanne conducting a recorded interview by telephone. Thank you for calling. I'll be asking a series of questions to better understand the incident and assist with the claim process. This conversation will also include some specific details to support the claim review."
 
-Permission:
-Do you understand that this conversation is being recorded?
-Is it being recorded with your permission?
+// Permission:
+// Do you understand that this conversation is being recorded?
+// Is it being recorded with your permission?
 
-- Part 1: Identification and Preliminary Details (FNOL)
-Caller Information:
-Can you please state your full name and spell your last name?
-Are you the policyholder or someone else reporting this incident (a claimant, policyholder, passenger, or witness)?
-If not the policyholder:
-What is your relationship to the policyholder?
-How can we contact the policyholder?
-What is the policy number (if known)?
-What is the best phone number and email to reach you?
-If applicable, what is the name of the driver of the vehicle involved?
-Incident Overview:
-What happened? (Brief description of the incident)
-When did the incident occur? (Date and time)
-Where did the incident occur? (Address, intersection, or nearest landmark)
-Were there any injuries?
-Were there any vehicles damaged?
-Was law enforcement contacted?
-If yes: Was a police report filed?
+// - Part 1: Identification and Preliminary Details (FNOL)
+// Caller Information:
+// Can you please state your full name and spell your last name?
+// Are you the policyholder or someone else reporting this incident (a claimant, policyholder, passenger, or witness)?
+// If not the policyholder:
+// What is your relationship to the policyholder?
+// How can we contact the policyholder?
+// What is the policy number (if known)?
+// What is the best phone number and email to reach you?
+// If applicable, what is the name of the driver of the vehicle involved?
+// Incident Overview:
+// What happened? (Brief description of the incident)
+// When did the incident occur? (Date and time)
+// Where did the incident occur? (Address, intersection, or nearest landmark)
+// Were there any injuries?
+// Were there any vehicles damaged?
+// Was law enforcement contacted?
+// If yes: Was a police report filed?
 
-- Part 2: Detailed Recorded Statement 
-General Incident Details:
-Can you describe in detail what happened before, during, and after the incident?
-What were the weather and road conditions at the time?
-Was it daylight, twilight, or dark?
-Were there any traffic signals, signs, or markings where the incident occurred?
-Was the road straight, curved, a one-way, or a two-way street?
-Vehicle Details:
-What is the make, model, and year of the vehicle you were driving?
-Who is the registered owner of the vehicle?
-Was your vehicle moving or stationary at the time of the incident?
-Can you describe the damage to your vehicle?
-Was your vehicle drivable after the incident?
-Have you obtained a repair estimate?
-Were there any other vehicles involved?
-If yes: Can you describe the make, model, and color of the other vehicle(s)?
+// - Part 2: Detailed Recorded Statement 
+// General Incident Details:
+// Can you describe in detail what happened before, during, and after the incident?
+// What were the weather and road conditions at the time?
+// Was it daylight, twilight, or dark?
+// Were there any traffic signals, signs, or markings where the incident occurred?
+// Was the road straight, curved, a one-way, or a two-way street?
+// Vehicle Details:
+// What is the make, model, and year of the vehicle you were driving?
+// Who is the registered owner of the vehicle?
+// Was your vehicle moving or stationary at the time of the incident?
+// Can you describe the damage to your vehicle?
+// Was your vehicle drivable after the incident?
+// Have you obtained a repair estimate?
+// Were there any other vehicles involved?
+// If yes: Can you describe the make, model, and color of the other vehicle(s)?
 
-Speed and Impact:
-What was your estimated speed before and at the time of the incident?
-Did you notice the other vehicle or hazard before the collision?
-Did you or the other driver take any actions to avoid the collision?
-Where was the point of impact on your vehicle and the other vehicle(s)?
-Were there any skid marks on the road?
-If yes: Were they measured by law enforcement?
+// Speed and Impact:
+// What was your estimated speed before and at the time of the incident?
+// Did you notice the other vehicle or hazard before the collision?
+// Did you or the other driver take any actions to avoid the collision?
+// Where was the point of impact on your vehicle and the other vehicle(s)?
+// Were there any skid marks on the road?
+// If yes: Were they measured by law enforcement?
 
-Passenger and Witness Information:
-Were there any passengers in your vehicle?
-If yes: Please provide their names, ages, and contact information.
-Were there passengers in the other vehicle(s)?
-Were there any witnesses to the incident?
-If yes: Can you provide their names and contact information?
+// Passenger and Witness Information:
+// Were there any passengers in your vehicle?
+// If yes: Please provide their names, ages, and contact information.
+// Were there passengers in the other vehicle(s)?
+// Were there any witnesses to the incident?
+// If yes: Can you provide their names and contact information?
 
-Injuries:
-Were you or anyone else injured in the incident?
-Did anyone receive medical attention at the scene?
-Have you sought additional medical treatment since the incident?
+// Injuries:
+// Were you or anyone else injured in the incident?
+// Did anyone receive medical attention at the scene?
+// Have you sought additional medical treatment since the incident?
 
-Police Investigation:
-Was law enforcement involved?
-Do you recall the officer's name or badge number?
-Was a police report filed?
-Did any driver receive a citation?
+// Police Investigation:
+// Was law enforcement involved?
+// Do you recall the officer's name or badge number?
+// Was a police report filed?
+// Did any driver receive a citation?
 
-Insurance Information:
-What insurance coverage do you have on your vehicle?
-Was the policy active at the time of the incident?
-Have you reported this incident to any other insurance company?
-Have you filed any other claims related to this incident?
+// Insurance Information:
+// What insurance coverage do you have on your vehicle?
+// Was the policy active at the time of the incident?
+// Have you reported this incident to any other insurance company?
+// Have you filed any other claims related to this incident?
 
-Previous Incidents:
-Have you ever been involved in any prior vehicle accidents?
-If yes: Can you provide details, including dates and outcomes?
-Have you ever filed a claim for a stolen or damaged vehicle?
+// Previous Incidents:
+// Have you ever been involved in any prior vehicle accidents?
+// If yes: Can you provide details, including dates and outcomes?
+// Have you ever filed a claim for a stolen or damaged vehicle?
 
-- Part 3: Closing:
-Is there anything else you would like to add about the incident?
-Have you understood all the questions asked?
-Is all the information you provided accurate and complete to the best of your knowledge?
-Do you understand that this conversation has been recorded with your permission?
-Thank you. This concludes our interview.
+// - Part 3: Closing:
+// Is there anything else you would like to add about the incident?
+// Have you understood all the questions asked?
+// Is all the information you provided accurate and complete to the best of your knowledge?
+// Do you understand that this conversation has been recorded with your permission?
+// Thank you. This concludes our interview.
 
+// After you concluded the interview, you must generate a comprehensive claim report using the generateClaimReport function.
 
-"""
+// """
 
-`,
-      model: "gpt-4o-mini"
+// `,
+`You are an AI-powered auto insurance adjuster called "Joanne":
+      1. Ask only these 3 questions:
+         - Can you state your full name?
+         - What happened in the accident?
+      2. After receiving answers to these questions:
+         a. Thank the claimant and say the case will be processed
+         b. IMMEDIATELY call the generateClaimReport function with the collected information
+         c. Do not say "I will generate" or "Now generating" - just generate it after thanking the client and ending the conversation (see the example below)
+      3. Fill any missing required fields with placeholder text like "N/A".
+      
+      Format for the expected closing response:
+      "Thank you, Johnny. Your information has been noted, and your case will be processed soon. That will conclude this call. Thank you and have a good day.
+      
+      Claim Report:
+      ...(all the information)...
+      `,
+      model: "gpt-4o-mini",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "generateClaimReport",
+            description: "Generate a comprehensive claim report after concluding the interview",
+            parameters: {
+              type: "object",
+              properties: {
+                report: {
+                  type: "object",
+                  description: "The complete claim report data",
+                  properties: {
+                    identification: {
+                      type: "object",
+                      properties: {
+                        fullName: { type: "string" },
+                        policyholderInfo: { type: "string" },
+                        relationship: { type: "string" },
+                        policyNumber: { type: "string" },
+                        contactDetails: { type: "string" }
+                      },
+                      required: ["fullName", "contactDetails"]
+                    },
+                    incidentOverview: {
+                      type: "object",
+                      properties: {
+                        dateTime: { type: "string" },
+                        location: { type: "string" },
+                        description: { type: "string" },
+                        injuries: { type: "string" },
+                        vehicleDamage: { type: "string" },
+                        lawEnforcement: { type: "string" }
+                      },
+                      required: ["dateTime", "location", "description"]
+                    },
+                    detailedDescription: {
+                      type: "object",
+                      properties: {
+                        narrative: { type: "string" },
+                        conditions: { type: "string" },
+                        trafficControls: { type: "string" }
+                      },
+                      required: ["narrative"]
+                    },
+                    vehicleDetails: {
+                      type: "object",
+                      properties: {
+                        vehicleInfo: { type: "string" },
+                        damageDescription: { type: "string" },
+                        drivable: { type: "string" },
+                        repairEstimates: { type: "string", optional: true }
+                      },
+                      required: ["vehicleInfo", "damageDescription", "drivable"]
+                    },
+                    speedAndImpact: {
+                      type: "object",
+                      properties: {
+                        speed: { type: "string" },
+                        pointOfImpact: { type: "string" },
+                        skidMarks: { type: "string" }
+                      },
+                      required: ["speed", "pointOfImpact"]
+                    },
+                    witnessInfo: {
+                      type: "object",
+                      properties: {
+                        passengers: { type: "string" },
+                        witnesses: { type: "string" }
+                      },
+                      required: ["passengers", "witnesses"]
+                    },
+                    injuries: {
+                      type: "object",
+                      properties: {
+                        details: { type: "string" },
+                        medicalAttention: { type: "string" }
+                      },
+                      required: ["details"]
+                    },
+                    policeDetails: {
+                      type: "object",
+                      properties: {
+                        officerInfo: { type: "string" },
+                        citations: { type: "string" }
+                      },
+                      required: ["officerInfo"]
+                    },
+                    insuranceInfo: {
+                      type: "object",
+                      properties: {
+                        coverage: { type: "string" },
+                        policyStatus: { type: "string" },
+                        otherReports: { type: "string" }
+                      },
+                      required: ["coverage", "policyStatus"]
+                    },
+                    priorIncidents: {
+                      type: "object",
+                      properties: {
+                        accidents: { type: "string" },
+                        claims: { type: "string" }
+                      },
+                      required: ["accidents"]
+                    },
+                    additionalInfo: {
+                      type: "object",
+                      properties: {
+                        comments: { type: "string" },
+                        confirmation: { type: "string" },
+                        recordingPermission: { type: "string" }
+                      },
+                      required: ["confirmation", "recordingPermission"]
+                    },
+                    redFlags: {
+                      type: "object",
+                      properties: {
+                        inconsistencies: { type: "string" },
+                        requiresInvestigation: { type: "boolean" }
+                      },
+                      required: ["inconsistencies", "requiresInvestigation"]
+                    }
+                  },
+                  required: [
+                    "identification",
+                    "incidentOverview",
+                    "detailedDescription",
+                    "vehicleDetails",
+                    "speedAndImpact",
+                    "witnessInfo",
+                    "injuries",
+                    "policeDetails",
+                    "insuranceInfo",
+                    "priorIncidents",
+                    "additionalInfo",
+                    "redFlags"
+                  ]
+                }
+              },
+              required: ["report"]
+            }
+          }
+        }
+      ]
     });
     assistantId = assistant.id;
   }
@@ -372,18 +599,44 @@ async function analyzeConversation(messages: any) {
   }
 }
 
+// Add this component before the App component
+function ReportDisplay({ report }: { report: ClaimReport }) {
+  return (
+    <ScrollView 
+      style={styles.reportContainer}
+      contentContainerStyle={styles.reportContent}
+      showsVerticalScrollIndicator={true}
+    >
+      <Text style={styles.reportTitle}>Claim Report</Text>
+      
+      {Object.entries(report).map(([section, data]) => (
+        <View key={section} style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {section.replace(/([A-Z])/g, ' $1').trim()}
+          </Text>
+          {Object.entries(data).map(([key, value]) => (
+            <Text key={key} style={styles.sectionItem}>
+              {key.replace(/([A-Z])/g, ' $1').trim()}: {value.toString()}
+            </Text>
+          ))}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+// Modify runAssistantWithFunctionCalling to better handle the end of conversation
 async function runAssistantWithFunctionCalling(
   threadId: string,
-  assistantIdToUse: string
+  assistantIdToUse: string,
+  displayReportFn?: (report: ClaimReport) => Promise<void>
 ): Promise<{ question?: string }> {
   return new Promise(async (resolve, reject) => {
     try {
       const run = await openai.beta.threads.runs.create(threadId, {
         assistant_id: assistantIdToUse,
       });
-      advisorThread.currentRunId = run.id;
 
-      // Poll for run completion
       let completedRun = await openai.beta.threads.runs.retrieve(threadId, run.id);
 
       while (
@@ -397,18 +650,49 @@ async function runAssistantWithFunctionCalling(
             const toolCalls = completedRun.required_action.submit_tool_outputs.tool_calls;
             
             for (const toolCall of toolCalls) {
-              if (toolCall.function.name === 'suggestFollowUpQuestion') {
-                const args = JSON.parse(toolCall.function.arguments);
-                
-                // Submit the tool outputs with the function's response
+              const args = JSON.parse(toolCall.function.arguments);
+              
+              if (toolCall.function.name === 'generateClaimReport') {
+                // Before generating the report, let's get the assistant's final message
+                const messages = await getThreadMessages(threadId);
+                const assistantMessage = messages.data
+                  .filter((msg: ThreadMessage) => msg.role === 'assistant')
+                  .sort((a: ThreadMessage, b: ThreadMessage) => b.created_at - a.created_at)[0];
+
+                if (assistantMessage && assistantMessage.content) {
+                  const content = assistantMessage.content[0]?.text?.value || '';
+                  // Play the assistant's final message
+                  await handleTextToSpeech(content);
+                  // Wait for the speech to finish before proceeding
+                  await new Promise(resolve => {
+                    const checkInterval = setInterval(() => {
+                      if (!isPlaying) {
+                        clearInterval(checkInterval);
+                        resolve(true);
+                      }
+                    }, 500);
+                  });
+                }
+
+                // Now proceed to display the report
+                if (displayReportFn) {
+                  await displayReportFn(args.report);
+                }
                 await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
                   tool_outputs: [{
                     tool_call_id: toolCall.id,
-                    output: JSON.stringify({ success: true })  // Provide a valid output
+                    output: JSON.stringify({ success: true })
                   }]
                 });
-
-                // Return the suggested question
+                resolve({});
+                return;
+              } else if (toolCall.function.name === 'suggestFollowUpQuestion') {
+                await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
+                  tool_outputs: [{
+                    tool_call_id: toolCall.id,
+                    output: JSON.stringify({ success: true })
+                  }]
+                });
                 resolve({ question: args.question });
                 return;
               }
@@ -424,12 +708,9 @@ async function runAssistantWithFunctionCalling(
         resolve({});
       } else if (completedRun.status === 'failed') {
         reject(new Error(`Run failed: ${completedRun.last_error?.message}`));
-      } else {
-        console.log('⚠️ Unexpected run status:', completedRun.status);
-        resolve({});
       }
     } catch (error) {
-      console.error('❌ Error during assistant run:', error);
+      console.error('Error during assistant run:', error);
       reject(error);
     }
   });
@@ -473,6 +754,8 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const isRecognizingRef = useRef(false); // Ref to track recognition state
   const analyzerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [reportData, setReportData] = useState<ClaimReport | null>(null);
+  const [isConversationEnded, setIsConversationEnded] = useState(false); // Add this state
 
   const initializeWebSpeechRecognition = () => {
     if (!('webkitSpeechRecognition' in window)) {
@@ -487,10 +770,13 @@ export default function App() {
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
+    // Only start recording if conversation hasn't ended
     recognition.onstart = () => {
-      isRecognizingRef.current = true;
-      setIsRecording(true);
-      console.log('🎤 Speech recognition started');
+      if (!isConversationEnded) {
+        isRecognizingRef.current = true;
+        setIsRecording(true);
+        console.log('🎤 Speech recognition started');
+      }
     };
 
     recognition.onend = () => {
@@ -528,29 +814,70 @@ export default function App() {
     recognition.start();
   };
 
+  // Move displayReport inside App component
+  const displayReport = async (reportData: ClaimReport) => {
+    try {
+      console.log('📊 Displaying report:', reportData);
+      setReportData(reportData);
+      setIsProcessing(true);
+      setIsPlaying(false);
+      setIsConversationEnded(true); // Mark conversation as ended
+      
+      // Stop speech recognition
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+          isRecognizingRef.current = false;
+        } catch (error) {
+          console.error('Error stopping speech recognition:', error);
+        }
+      }
+
+      // Clear analyzer interval
+      if (analyzerIntervalRef.current) {
+        clearInterval(analyzerIntervalRef.current);
+        analyzerIntervalRef.current = null; // Set to null after clearing
+      }
+
+      // Reset all thread-related states
+      threadIdRef.current = null;
+      adjusterThread.threadId = null;
+      advisorThread.threadId = null;
+      adjusterThread.isProcessing = false;
+      advisorThread.isProcessing = false;
+      adjusterThread.currentRunId = null;
+      advisorThread.currentRunId = null;
+      adjusterAssistant.suggestedQuestion = '';
+    } catch (error) {
+      console.error('Error displaying report:', error);
+      alert('Failed to display report');
+    }
+  };
+
+  // Modify useEffect to check for conversation end
   useEffect(() => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' && !isConversationEnded) {
       initializeAssistants();
       initializeWebSpeechRecognition();
-
-      // Start the conversation analyzer
+  
       analyzerIntervalRef.current = setInterval(async () => {
-        if (threadIdRef.current) {
+        if (threadIdRef.current && !isConversationEnded) {
           const messages = await getThreadMessages(threadIdRef.current);
           await analyzeConversation(messages);
         }
-      }, 15000); // Run every 15 seconds instead of 10
+      }, 10000);
     }
-
+  
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       if (analyzerIntervalRef.current) {
         clearInterval(analyzerIntervalRef.current);
+        analyzerIntervalRef.current = null;
       }
     };
-  }, []);
+  }, [isConversationEnded]); // Add isConversationEnded as dependency
 
   const handleGptResponse = async (text: string) => {
     try {
@@ -558,52 +885,74 @@ export default function App() {
       
       let currentThreadId = threadIdRef.current;
 
-      // Create a new thread only if there isn't an existing one
       if (!currentThreadId) {
         currentThreadId = await createThread();
         threadIdRef.current = currentThreadId;
         console.log('🔗 Thread ID set to:', currentThreadId);
       }
 
-      // Check for advisor's suggested question
       let advisorQuestion = '';
       if (adjusterAssistant.suggestedQuestion) {
         advisorQuestion = `\n\nAdvisor suggests: ${adjusterAssistant.suggestedQuestion}`;
-        adjusterAssistant.suggestedQuestion = ''; // Reset after using
+        adjusterAssistant.suggestedQuestion = '';
       }
 
-      // Include the advisor's suggestion in the message
       const assistantInput = text + advisorQuestion;
-
       await addMessageToThread(currentThreadId, assistantInput);
-      
-      // Get and log thread messages before running the assistant
       await getThreadMessages(currentThreadId);
       
       const gptText = await runAssistant(currentThreadId, assistantId);
       console.log('🤖 Assistant Response:', gptText);
       
-      // Get and log thread messages after running the assistant
-      await getThreadMessages(currentThreadId);
+      // Split the response at "Claim Report"
+      const [concludingMessage, reportSection] = gptText.split(/Claim Report:/i);
       
-      setGptResponse(gptText);
-      await handleTextToSpeech(gptText);
+      if (concludingMessage) {
+        setGptResponse(gptText);
+        setIsProcessing(true);
+        
+        // Disable speech recognition before playing audio
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+        }
+        
+        // If reportSection exists, the conversation has ended
+        if (reportSection) {
+          setIsConversationEnded(true); // Set this before playing the concluding message
+        }
+        
+        // Play the concluding message
+        await handleTextToSpeech(concludingMessage.trim());
+        
+        // After the audio finishes, process the report if it exists
+        if (reportSection) {
+          try {
+            console.log('🔄 Processing report section:', reportSection.trim());
+            const reportData = JSON.parse(reportSection.trim());
+            console.log('📊 Parsed report data:', reportData);
+            await displayReport(reportData); // Make sure we're using the inner displayReport
+            console.log('✅ Report displayed');
+          } catch (err) {
+            console.error('Error parsing report data:', err);
+          }
+        } else {
+          setIsProcessing(false);
+        }
+      }
     } catch (err) {
       console.error('❌ Assistant response error', err);
       alert('An error occurred while processing the response.');
       setIsProcessing(false);
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch (error) {
-          console.error('❌ Error restarting speech recognition:', error);
-        }
-      }
     }
   };
 
+  // Modify handleTextToSpeech to check for conversation end
   const handleTextToSpeech = async (text: string) => {
     try {
+      if (reportData) {
+        return;
+      }
+
       console.log('🔊 Converting to speech:', text);
       setIsPlaying(true);
 
@@ -617,7 +966,7 @@ export default function App() {
           model: 'tts-1',
           voice: 'alloy',
           input: text,
-          speed: 3 // Adjusted speed
+          speed: 3
         }),
       });
 
@@ -640,13 +989,15 @@ export default function App() {
             console.log('🔊 Audio playback finished');
             await soundObject.unloadAsync();
             setIsPlaying(false);
-            setIsProcessing(false);
             
-            setTimeout(() => {
-              if (!isRecognizingRef.current && recognitionRef.current) {
-                recognitionRef.current.start();
-              }
-            }, 1000);
+            // Only restart speech recognition if conversation hasn't ended
+            if (!text.toLowerCase().includes('report') && !isProcessing && !isConversationEnded) {
+              setTimeout(() => {
+                if (!isRecognizingRef.current && recognitionRef.current) {
+                  recognitionRef.current.start();
+                }
+              }, 1000);
+            }
           }
         });
 
@@ -658,32 +1009,23 @@ export default function App() {
       console.error('❌ Error generating speech:', error);
       setIsPlaying(false);
       setIsProcessing(false);
-      setTimeout(() => {
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (error) {
-            console.error('❌ Error restarting speech recognition:', error);
-          }
-        }
-      }, 1000);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>
-        {isPlaying ? 'Playing response...' : 
-         isProcessing ? 'Processing...' :
-         isRecording ? 'Listening...' : 
-         'Waiting for speech...'}
-      </Text>
-      {transcription ? (
-        <Text style={styles.text}>Transcription: {transcription}</Text>
-      ) : null}
-      {gptResponse ? (
-        <Text style={styles.text}>GPT Response: {gptResponse}</Text>
-      ) : null}
+      {!reportData ? (
+        // Show processing states only when report isn't ready
+        <Text style={styles.text}>
+          {isPlaying ? 'Playing response...' : 
+           isProcessing ? 'Processing...' :
+           isRecording ? 'Listening...' : 
+           'Waiting for speech...'}
+        </Text>
+      ) : (
+        // Only show the report when it's ready
+        <ReportDisplay report={reportData} />
+      )}
     </View>
   );
 }
@@ -698,5 +1040,33 @@ const styles = StyleSheet.create({
   text: {
     marginVertical: 8,
     textAlign: 'center',
+  },
+  reportContainer: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 600,
+  },
+  reportContent: {
+    padding: 16,
+    backgroundColor: '#f5f5f5',
+  },
+  reportTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  section: {
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    textDecorationLine: 'underline',
+  },
+  sectionItem: {
+    fontSize: 14,
+    marginBottom: 4,
   },
 });
