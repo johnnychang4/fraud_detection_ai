@@ -3,7 +3,7 @@
 ## Demo
 [![Demo Video](https://img.youtube.com/vi/70YTj7RthXM/0.jpg)](https://youtu.be/70YTj7RthXM)
 
-> **Note:** The video demo (click it to view) above is reduced to two questions to make it succinct while showcasing:
+> **Note:** The video demo (click it to view) above is reduced to two questions with voice speed increased to 3x to make it succinct while showcasing:
 > - The conversation flow between adjuster and claimant
 > - The advisor's follow-up questions (visible in console log)
 > - The final claim report generation
